@@ -23,8 +23,10 @@ public class Main {
         int chunkHeight = 2;
 
         // Output size = input size
-        int outputWidth = inputWidth;
-        int outputHeight = inputHeight;
+        //int outputWidth = inputWidth;
+        //int outputHeight = inputHeight;
+		int outputWidth = 24;
+		int outputHeight = 9;
 		System.out.println("Input dimensions: " + inputWidth + "x" + inputHeight);
 
         TextWFCModel model = new TextWFCModel(input, outputWidth, outputHeight, chunkWidth, chunkHeight);

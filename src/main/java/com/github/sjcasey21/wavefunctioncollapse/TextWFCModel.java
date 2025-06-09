@@ -79,20 +79,21 @@ public class TextWFCModel {
             for (int x = 0; x < gridWidth; x++) {
                 for (int t = 0; t < tileCount; t++) {
                     if (y != 0 && adjacencyRules[0].getOrDefault(t, Collections.emptySet()).isEmpty()) {
-                        wave[y][x][t] = false; // Up
+                        ban(x,y,t); // Up
                     }
                     if (x != gridWidth - 1 && adjacencyRules[1].getOrDefault(t, Collections.emptySet()).isEmpty()) {
-                        wave[y][x][t] = false; // Right
+                        ban(x,y,t); // Right
                     }
                     if (y != gridHeight - 1 && adjacencyRules[2].getOrDefault(t, Collections.emptySet()).isEmpty()) {
-                        wave[y][x][t] = false; // Down
+                        ban(x,y,t); // Down
                     }
                     if (x != 0 && adjacencyRules[3].getOrDefault(t, Collections.emptySet()).isEmpty()) {
-                        wave[y][x][t] = false; // Left
+                        ban(x,y,t); // Left
                     }
                 }
             }
         }
+        propagate();
         printCompleteWave();
     }
 
@@ -223,6 +224,7 @@ public class TextWFCModel {
     private void propagate() {
         while (!stack.isEmpty()) {
             Point p = stack.pop();
+            //printCompleteWave();
             //System.out.println("Propagating from point: " + p.x + ", " + p.y + ", " + p.z);
             int x = p.x, y = p.y, t = p.z;
             for (int dir = 0; dir < 4; dir++) {
