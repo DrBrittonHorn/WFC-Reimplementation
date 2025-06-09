@@ -1,46 +1,45 @@
 package com.github.sjcasey21.wavefunctioncollapse;
 
-import java.io.*;
-import java.util.*;
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.List;
 
 public class Main {
+    public static void main(String[] args) throws IOException {
+        List<String> lines = Files.readAllLines(Paths.get("input.txt"));
+        int inputHeight = lines.size();
+        int inputWidth = lines.get(0).length();
+        char[][] input = new char[inputHeight][inputWidth];
 
-    static char[][] loadInputTextFile(String path) throws IOException {
-        List<char[]> rows = new ArrayList<>();
-        BufferedReader reader = new BufferedReader(new FileReader(path));
-        String line;
-        while ((line = reader.readLine()) != null) {
-            rows.add(line.trim().toCharArray());
+        for (int y = 0; y < inputHeight; y++) {
+            input[y] = lines.get(y).toCharArray();
         }
-        reader.close();
-        return rows.toArray(new char[rows.size()][]);
-    }
 
-    static void runTextWFC() {
-        try {
-            char[][] input = loadInputTextFile("input.txt");
-            int height = input.length;
-            int width = input[0].length;
-            Random random = new Random();
+        // Choose tile size here (e.g. 2x2, 1x1, 1x5, etc.)
+        int chunkWidth = 2;
+        int chunkHeight = 2;
 
-            TextWFCModel model = new TextWFCModel(input, width, height);
-            boolean finished = model.run();
-            System.out.println("Finished: " + finished);
+        // Output size = input size
+        int outputWidth = inputWidth;
+        int outputHeight = inputHeight;
 
-            BufferedWriter writer = new BufferedWriter(new FileWriter("txt_out.txt"));
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x < width; x++) {
-                    writer.write(model.getOutput()[y][x]);
-                }
-                writer.newLine();
-            }
-            writer.close();
-        } catch (Exception e) {
-            e.printStackTrace();
+        TextWFCModel model = new TextWFCModel(input, outputWidth, outputHeight, chunkWidth, chunkHeight);
+        boolean success = model.run();
+        System.out.println("Success: " + success);
+
+        char[][] output = model.getFinalOutput();
+        for (char[] row : output) {
+            System.out.println(new String(row));
         }
-    }
 
-    public static void main(String[] args) {
-        runTextWFC();
+        BufferedWriter writer = new BufferedWriter(new FileWriter("txt_output.txt"));
+        for (char[] row : output) {
+            writer.write(row);
+            writer.newLine();
+        }
+        writer.close();
     }
 }

@@ -1,116 +1,205 @@
 package com.github.sjcasey21.wavefunctioncollapse;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class TextWFCModel {
 
-    private final int width, height;
-    private final char[][] input;
-    private final char[][] output;
-    private final char[] symbols = { 'A', 'B', 'C' };
+    private final int outputWidth, outputHeight, chunkWidth, chunkHeight;
+    private final int[][] input;
+    private final char[][] finalOutput;
+    private final List<int[][]> tiles = new ArrayList<>();
+    private final Map<String, Integer> tileIds = new HashMap<>();
+    private final Map<Integer, String> idToSymbol = new HashMap<>();
+    private final Map<String, Integer> symbolToId = new HashMap<>();
+    private final Map<Integer, Integer> tileFrequencies = new HashMap<>();
+
     private final boolean[][][] wave;
-    private final boolean[][] observed; // NEW: Track observed locations
+    private final boolean[][] observed;
     private final Stack<Point> stack = new Stack<>();
     private final Random random = new Random();
+    private final Map<Integer, Set<Integer>>[] adjacencyRules = new HashMap[4];
 
-    public TextWFCModel(char[][] input, int width, int height) {
-        this.width = width;
-        this.height = height;
-        this.input = input;
-        this.output = new char[height][width];
+    private int gridWidth, gridHeight;
 
-        // Initialize wave function: wave[y][x][t] where t is symbol index
-        wave = new boolean[height][width][symbols.length];
-        observed = new boolean[height][width];
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                Arrays.fill(wave[y][x], true); // all possibilities allowed at start
-                observed[y][x] = false;
+    public TextWFCModel(char[][] inputChars, int outputWidth, int outputHeight, int chunkWidth, int chunkHeight) {
+        this.chunkWidth = chunkWidth;
+        this.chunkHeight = chunkHeight;
+
+        this.outputWidth = outputWidth;
+        this.outputHeight = outputHeight;
+
+        this.gridWidth = (int) Math.ceil((double) outputWidth / chunkWidth);
+        this.gridHeight = (int) Math.ceil((double) outputHeight / chunkHeight);
+
+        this.finalOutput = new char[outputHeight][outputWidth];
+
+        // Convert input chars to int IDs
+        this.input = new int[inputChars.length][inputChars[0].length];
+        int id = 0;
+        for (int y = 0; y < inputChars.length; y++) {
+            for (int x = 0; x < inputChars[0].length; x++) {
+                char ch = inputChars[y][x];
+                if (!symbolToId.containsKey(String.valueOf(ch))) {
+                    symbolToId.put(String.valueOf(ch), id);
+                    idToSymbol.put(id, String.valueOf(ch));
+                    id++;
+                }
+                input[y][x] = symbolToId.get(String.valueOf(ch));
             }
         }
+
+        extractTiles();
+        inferAdjacency();
+
+        int tileCount = tiles.size();
+        wave = new boolean[gridHeight][gridWidth][tileCount];
+        observed = new boolean[gridHeight][gridWidth];
+
+        for (int y = 0; y < gridHeight; y++) {
+            for (int x = 0; x < gridWidth; x++) {
+                Arrays.fill(wave[y][x], true);
+            }
+        }
+    }
+
+    private void extractTiles() {
+        AtomicInteger idCounter = new AtomicInteger(0);
+        for (int y = 0; y < input.length; y++) {
+            for (int x = 0; x < input[0].length; x++) {
+                int maxChunkHeight = Math.min(chunkHeight, input.length - y);
+                int maxChunkWidth = Math.min(chunkWidth, input[0].length - x);
+
+                if (maxChunkHeight <= 0 || maxChunkWidth <= 0) continue;
+
+                int[][] chunk = new int[maxChunkHeight][maxChunkWidth];
+                for (int dy = 0; dy < maxChunkHeight; dy++) {
+                    for (int dx = 0; dx < maxChunkWidth; dx++) {
+                        chunk[dy][dx] = input[y + dy][x + dx];
+                    }
+                }
+                String key = Arrays.deepToString(chunk);
+                int tileId = tileIds.computeIfAbsent(key, k -> {
+                    tiles.add(chunk);
+                    return idCounter.getAndIncrement();
+                });
+                tileFrequencies.put(tileId, tileFrequencies.getOrDefault(tileId, 0) + 1);
+            }
+        }
+    }
+
+    private void inferAdjacency() {
+        for (int i = 0; i < 4; i++) adjacencyRules[i] = new HashMap<>();
+        for (int i = 0; i < tiles.size(); i++) {
+            for (int j = 0; j < tiles.size(); j++) {
+                for (int dir = 0; dir < 4; dir++) {
+                    if (canBeAdjacent(tiles.get(i), tiles.get(j), dir)) {
+                        adjacencyRules[dir].computeIfAbsent(i, k -> new HashSet<>()).add(j);
+                    }
+                }
+            }
+        }
+    }
+
+    private boolean canBeAdjacent(int[][] a, int[][] b, int dir) {
+        int ha = a.length, wa = a[0].length;
+        int hb = b.length, wb = b[0].length;
+
+        switch (dir) {
+            case 0: // up
+                if (wa != wb) return false;
+                for (int i = 0; i < wa; i++) if (a[0][i] != b[hb - 1][i]) return false;
+                break;
+            case 1: // right
+                if (ha != hb) return false;
+                for (int i = 0; i < ha; i++) if (a[i][wa - 1] != b[i][0]) return false;
+                break;
+            case 2: // down
+                if (wa != wb) return false;
+                for (int i = 0; i < wa; i++) if (a[ha - 1][i] != b[0][i]) return false;
+                break;
+            case 3: // left
+                if (ha != hb) return false;
+                for (int i = 0; i < ha; i++) if (a[i][0] != b[i][wb - 1]) return false;
+                break;
+        }
+        return true;
     }
 
     public boolean run() {
         while (true) {
             int[] coords = observe();
-            if (coords == null) break; // all observed
-            if (coords.length == 0) return false; // contradiction THERE IS AN ISSUE HERE
+            if (coords == null) break;
+            if (coords.length == 0) return false;
 
             int y = coords[0], x = coords[1];
-            List<Integer> options = getPossibleSymbols(y, x);
+            List<Integer> options = getPossibleTiles(y, x);
             if (options.isEmpty()) return false;
 
-            int chosen = options.get(random.nextInt(options.size()));
-            for (int t = 0; t < symbols.length; t++) {
+            int total = 0;
+            for (int opt : options) total += tileFrequencies.getOrDefault(opt, 1);
+            int r = random.nextInt(total);
+            int chosen = options.get(0);
+            for (int opt : options) {
+                r -= tileFrequencies.getOrDefault(opt, 1);
+                if (r < 0) {
+                    chosen = opt;
+                    break;
+                }
+            }
+
+            for (int t = 0; t < tiles.size(); t++) {
                 if (t != chosen) ban(x, y, t);
             }
 
-            observed[y][x] = true; // Mark as observed
+            observed[y][x] = true;
             propagate();
         }
 
-        // Fill output grid
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                for (int t = 0; t < symbols.length; t++) {
-                    if (wave[y][x][t]) {
-                        output[y][x] = symbols[t];
-                        break;
-                    }
-                }
-            }
-        }
+        reconstructOutput();
         return true;
     }
 
     private int[] observe() {
-        double minEntropy = 1E+3;
-        int[] argmin = null;
-
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                if (observed[y][x]) continue; // NEW: skip already observed cells
-
-                int count = 0;
-                for (int t = 0; t < symbols.length; t++) {
-                    if (wave[y][x][t]) count++;
-                    //System.out.println("t: " + t + ", wave[0][1][t]: " + wave[0][1][t]);
-                }
-                if (count == 0) {
-                    return new int[0]; // contradiction
-                }
-                if (count == 1) continue; // already effectively observed (only one option)
-
-                double entropy = Math.log(count) + random.nextDouble() * 1E-6;
+        double minEntropy = Double.POSITIVE_INFINITY;
+        int[] result = null;
+        for (int y = 0; y < gridHeight; y++) {
+            for (int x = 0; x < gridWidth; x++) {
+                if (observed[y][x]) continue;
+                List<Integer> options = getPossibleTiles(y, x);
+                if (options.isEmpty()) return new int[0];
+                if (options.size() == 1) continue;
+                double entropy = Math.log(options.size()) + random.nextDouble() * 1e-6;
                 if (entropy < minEntropy) {
                     minEntropy = entropy;
-                    argmin = new int[]{y, x};
+                    result = new int[]{y, x};
                 }
             }
         }
-
-        return argmin;
+        return result;
     }
 
     private void propagate() {
         while (!stack.isEmpty()) {
             Point p = stack.pop();
             int x = p.x, y = p.y, t = p.z;
+            for (int dir = 0; dir < 4; dir++) {
+                int dx = (dir == 1) ? 1 : (dir == 3) ? -1 : 0;
+                int dy = (dir == 2) ? 1 : (dir == 0) ? -1 : 0;
+                int nx = x + dx, ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= gridWidth || ny >= gridHeight) continue;
 
-            for (int dy = -1; dy <= 1; dy++) {
-                for (int dx = -1; dx <= 1; dx++) {
-                    if (Math.abs(dx) + Math.abs(dy) != 1) continue;
-
-                    int nx = x + dx;
-                    int ny = y + dy;
-                    if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-
-                    for (int t2 = 0; t2 < symbols.length; t2++) {
-                        if (!wave[ny][nx][t2]) continue;
-                        if (!respectsConstraints(nx, ny, symbols[t2])) {
-                            ban(nx, ny, t2);
+                for (int t2 = 0; t2 < tiles.size(); t2++) {
+                    if (!wave[ny][nx][t2]) continue;
+                    boolean valid = false;
+                    for (int t3 = 0; t3 < tiles.size(); t3++) {
+                        if (wave[y][x][t3] &&
+                            adjacencyRules[dir].getOrDefault(t3, Collections.emptySet()).contains(t2)) {
+                            valid = true;
+                            break;
                         }
                     }
+                    if (!valid) ban(nx, ny, t2);
                 }
             }
         }
@@ -119,93 +208,45 @@ public class TextWFCModel {
     private void ban(int x, int y, int t) {
         if (!wave[y][x][t]) return;
         wave[y][x][t] = false;
-        stack.add(new Point(x, y, t));
-
-        // DEBUG: Output what's being banned
-        System.out.println("BANNING symbol " + symbols[t] + " at (" + y + ", " + x + ")");
+        stack.push(new Point(x, y, t));
     }
 
-    private List<Integer> getPossibleSymbols(int y, int x) {
-        List<Integer> options = new ArrayList<>();
-        for (int t = 0; t < symbols.length; t++) {
-            if (wave[y][x][t]) {
-                options.add(t);
-            }
+    private List<Integer> getPossibleTiles(int y, int x) {
+        List<Integer> result = new ArrayList<>();
+        for (int t = 0; t < tiles.size(); t++) {
+            if (wave[y][x][t]) result.add(t);
         }
-        return options;
+        return result;
     }
 
-    private boolean respectsConstraints(int x, int y, char candidate) {
-        // Check ABOVE (y - 1)
-        if (y > 0) {
-            for (int t = 0; t < symbols.length; t++) {
-                if (!wave[y - 1][x][t]) continue;
-                char above = symbols[t];
-
-                // A cannot have B above
-                if (candidate == 'A' && above == 'B') return false;
-
-                // C cannot have B above
-                if (candidate == 'C' && above == 'B') return false;
+    private void reconstructOutput() {
+        for (int y = 0; y < gridHeight; y++) {
+            for (int x = 0; x < gridWidth; x++) {
+                for (int t = 0; t < tiles.size(); t++) {
+                    if (wave[y][x][t]) {
+                        int[][] tile = tiles.get(t);
+                        for (int dy = 0; dy < tile.length; dy++) {
+                            for (int dx = 0; dx < tile[0].length; dx++) {
+                                int fy = y * chunkHeight + dy;
+                                int fx = x * chunkWidth + dx;
+                                if (fy < outputHeight && fx < outputWidth) {
+                                    finalOutput[fy][fx] = idToSymbol.get(tile[dy][dx]).charAt(0);
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
             }
         }
-
-        // Check BELOW (y + 1)
-        if (y < height - 1) {
-            for (int t = 0; t < symbols.length; t++) {
-                if (!wave[y + 1][x][t]) continue;
-                char below = symbols[t];
-
-                // B cannot have A below
-                //if (candidate == 'B' && below == 'A') return false;
-
-                // C cannot have A below
-                if (candidate == 'C' && below == 'A') return false;
-
-                // A cannot have C below
-                if (candidate == 'A' && below == 'C') return false;
-            }
-        }
-
-        // Check LEFT (x - 1)
-        if (x > 0) {
-            for (int t = 0; t < symbols.length; t++) {
-                if (!wave[y][x - 1][t]) continue;
-                char left = symbols[t];
-
-                // C cannot have B or C to the left
-                if (candidate == 'C' && (left == 'B' || left == 'C')) return false;
-
-                // A/B mutual exclusion left
-                //if ((candidate == 'A' && left == 'B') || (candidate == 'B' && left == 'A')) return false;
-            }
-        }
-
-        // Check RIGHT (x + 1)
-        if (x < width - 1) {
-            for (int t = 0; t < symbols.length; t++) {
-                if (!wave[y][x + 1][t]) continue;
-                char right = symbols[t];
-
-                // C cannot have B or C to the right
-                if (candidate == 'C' && (right == 'B' || right == 'C')) return false;
-
-                // A/B mutual exclusion right
-                //if ((candidate == 'A' && right == 'B') || (candidate == 'B' && right == 'A')) return false;
-            }
-        }
-
-        return true;
     }
 
-    public char[][] getOutput() {
-        return output;
+    public char[][] getFinalOutput() {
+        return finalOutput;
     }
 
     private static class Point {
         int x, y, z;
-        Point(int x, int y, int z) {
-            this.x = x; this.y = y; this.z = z;
-        }
+        Point(int x, int y, int z) { this.x = x; this.y = y; this.z = z; }
     }
 }
