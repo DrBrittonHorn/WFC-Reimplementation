@@ -25,6 +25,7 @@ public class Main {
         // Output size = input size
         int outputWidth = inputWidth;
         int outputHeight = inputHeight;
+		System.out.println("Input dimensions: " + inputWidth + "x" + inputHeight);
 
         TextWFCModel model = new TextWFCModel(input, outputWidth, outputHeight, chunkWidth, chunkHeight);
         boolean success = model.run();
