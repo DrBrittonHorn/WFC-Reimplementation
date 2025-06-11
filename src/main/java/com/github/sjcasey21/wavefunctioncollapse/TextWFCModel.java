@@ -75,20 +75,21 @@ public class TextWFCModel {
             }
         }
         // Ban border tiles
+        // Preprocess: prune tiles that can't exist due to adjacency constraints
         for (int y = 0; y < gridHeight; y++) {
             for (int x = 0; x < gridWidth; x++) {
-                for (int t = 0; t < tileCount; t++) {
-                    if (y != 0 && adjacencyRules[0].getOrDefault(t, Collections.emptySet()).isEmpty()) {
-                        ban(x,y,t); // Up
-                    }
-                    if (x != gridWidth - 1 && adjacencyRules[1].getOrDefault(t, Collections.emptySet()).isEmpty()) {
-                        ban(x,y,t); // Right
-                    }
-                    if (y != gridHeight - 1 && adjacencyRules[2].getOrDefault(t, Collections.emptySet()).isEmpty()) {
-                        ban(x,y,t); // Down
-                    }
-                    if (x != 0 && adjacencyRules[3].getOrDefault(t, Collections.emptySet()).isEmpty()) {
-                        ban(x,y,t); // Left
+                for (int t = 0; t < tiles.size(); t++) {
+                    for (int dir = 0; dir < 4; dir++) {
+                        boolean edge = (dir == 0 && y == 0) ||
+                                    (dir == 1 && x == gridWidth - 1) ||
+                                    (dir == 2 && y == gridHeight - 1) ||
+                                    (dir == 3 && x == 0);
+                        if (edge) continue; // skip border checks for this direction
+
+                        if (adjacencyRules[dir].getOrDefault(t, Collections.emptySet()).isEmpty()) {
+                            ban(x, y, t);
+                            break;
+                        }
                     }
                 }
             }
@@ -266,25 +267,31 @@ public class TextWFCModel {
     private void reconstructOutput() {
         for (int y = 0; y < gridHeight; y++) {
             for (int x = 0; x < gridWidth; x++) {
+                int chosen = -1;
                 for (int t = 0; t < tiles.size(); t++) {
                     if (wave[y][x][t]) {
-                        char[][] tile = tiles.get(t);
-                        for (int dy = 0; dy < tile.length; dy++) {
-                            for (int dx = 0; dx < tile[0].length; dx++) {
-                                int fy = y * chunkHeight + dy;
-                                int fx = x * chunkWidth + dx;
-                                if (fy < outputHeight && fx < outputWidth) {
-                                    finalOutput[fy][fx] = tile[dy][dx];
-                                }
-                            }
-                        }
-                        printFinalOutput();
+                        chosen = t;
                         break;
+                    }
+                }
+                if (chosen == -1) continue; // contradiction or uncollapsed
+
+                char[][] tile = tiles.get(chosen);
+                for (int dy = 0; dy < tile.length; dy++) {
+                    for (int dx = 0; dx < tile[0].length; dx++) {
+                        int fy = y * chunkHeight + dy;
+                        int fx = x * chunkWidth + dx;
+                        if (fy < outputHeight && fx < outputWidth) {
+                            finalOutput[fy][fx] = tile[dy][dx];
+                        }
                     }
                 }
             }
         }
+
+        printFinalOutput();
     }
+
 
     private void printFinalOutput() {
         System.out.println("Final Output:");
