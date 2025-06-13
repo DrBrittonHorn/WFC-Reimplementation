@@ -67,6 +67,58 @@ public class TextWFCModel {
                 Arrays.fill(wave[y][x], true);
             }
         }
+
+        // Determine border tiles
+        Set<Integer> validTop = new HashSet<>();
+        Set<Integer> validBottom = new HashSet<>();
+        Set<Integer> validLeft = new HashSet<>();
+        Set<Integer> validRight = new HashSet<>();
+
+        for (int t = 0; t < tiles.size(); t++) {
+            char[][] tile = tiles.get(t);
+            boolean isTop = false, isBottom = false, isLeft = false, isRight = false;
+
+            for (int i = 0; i < tile[0].length; i++) {
+                if (tile[0][i] == 'B') isTop = true;
+                if (tile[tile.length - 1][i] == 'B') isBottom = true;
+            }
+            for (int i = 0; i < tile.length; i++) {
+                if (tile[i][0] == 'B') isLeft = true;
+                if (tile[i][tile[0].length - 1] == 'B') isRight = true;
+            }
+
+            if (isTop) validTop.add(t);
+            if (isBottom) validBottom.add(t);
+            if (isLeft) validLeft.add(t);
+            if (isRight) validRight.add(t);
+        }
+
+        // Ban tiles that aren't allowed in their respective border positions
+        for (int y = 0; y < gridHeight; y++) {
+            for (int x = 0; x < gridWidth; x++) {
+                if (y == 0) {
+                    for (int t = 0; t < tiles.size(); t++) {
+                        if (!validTop.contains(t)) wave[y][x][t] = false;
+                    }
+                }
+                if (y == gridHeight - 1) {
+                    for (int t = 0; t < tiles.size(); t++) {
+                        if (!validBottom.contains(t)) wave[y][x][t] = false;
+                    }
+                }
+                if (x == 0) {
+                    for (int t = 0; t < tiles.size(); t++) {
+                        if (!validLeft.contains(t)) wave[y][x][t] = false;
+                    }
+                }
+                if (x == gridWidth - 1) {
+                    for (int t = 0; t < tiles.size(); t++) {
+                        if (!validRight.contains(t)) wave[y][x][t] = false;
+                    }
+                }
+            }
+        }
+
         
         // Print adjacency rules for debugging
         for (int t = 0; t < tileCount; t++) {
