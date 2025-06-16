@@ -7,12 +7,10 @@ public class TextWFCModel {
 
     private final int outputWidth, outputHeight, chunkWidth, chunkHeight;
     private final char[][] input;
-    private int[][] inputAsTiles; // Stores tile IDs for the input
+    private int[][] inputAsTiles;
     private final char[][] finalOutput;
     private final List<char[][]> tiles = new ArrayList<>();
     private final Map<String, Integer> tileIds = new HashMap<>();
-    //private final Map<Integer, String> idToSymbol = new HashMap<>();
-    //private final Map<String, Integer> symbolToId = new HashMap<>();
     private final Map<Integer, Integer> tileFrequencies = new HashMap<>();
 
     private final boolean[][][] wave;
@@ -22,12 +20,12 @@ public class TextWFCModel {
     private final Map<Integer, Set<Integer>>[] adjacencyRules = new HashMap[4];
 
     private int gridWidth, gridHeight;
+    private final Set<Integer>[] borderTileKinds = new HashSet[4];
 
     public TextWFCModel(char[][] inputChars, int outputWidth, int outputHeight, int chunkWidth, int chunkHeight) {
         this.chunkWidth = chunkWidth;
         this.chunkHeight = chunkHeight;
         this.input = inputChars;
-
         this.outputWidth = outputWidth;
         this.outputHeight = outputHeight;
 
@@ -36,24 +34,7 @@ public class TextWFCModel {
         System.out.println("Grid dimensions: " + gridWidth + "x" + gridHeight);
 
         this.finalOutput = new char[outputHeight][outputWidth];
-        for (int y = 0; y < outputHeight; y++) {
-            Arrays.fill(finalOutput[y], '.');
-        }
-
-        // Convert input chars to int IDs
-        /*this.input = new int[inputChars.length][inputChars[0].length];
-        int id = 0;
-        for (int y = 0; y < inputChars.length; y++) {
-            for (int x = 0; x < inputChars[0].length; x++) {
-                char ch = inputChars[y][x];
-                if (!symbolToId.containsKey(String.valueOf(ch))) {
-                    symbolToId.put(String.valueOf(ch), id);
-                    idToSymbol.put(id, String.valueOf(ch));
-                    id++;
-                }
-                input[y][x] = symbolToId.get(String.valueOf(ch));
-            }
-        }*/
+        for (int y = 0; y < outputHeight; y++) Arrays.fill(finalOutput[y], '.');
 
         extractTiles();
         inferAdjacency();
@@ -61,91 +42,38 @@ public class TextWFCModel {
         int tileCount = tiles.size();
         wave = new boolean[gridHeight][gridWidth][tileCount];
         observed = new boolean[gridHeight][gridWidth];
-
-        for (int y = 0; y < gridHeight; y++) {
-            for (int x = 0; x < gridWidth; x++) {
+        for (int y = 0; y < gridHeight; y++)
+            for (int x = 0; x < gridWidth; x++)
                 Arrays.fill(wave[y][x], true);
-            }
-        }
 
-        // Determine border tiles
-        Set<Integer> validTop = new HashSet<>();
-        Set<Integer> validBottom = new HashSet<>();
-        Set<Integer> validLeft = new HashSet<>();
-        Set<Integer> validRight = new HashSet<>();
-
+        for (int i = 0; i < 4; i++) borderTileKinds[i] = new HashSet<>();
         for (int t = 0; t < tiles.size(); t++) {
             char[][] tile = tiles.get(t);
-            boolean isTop = false, isBottom = false, isLeft = false, isRight = false;
-
-            for (int i = 0; i < tile[0].length; i++) {
-                if (tile[0][i] == 'B') isTop = true;
-                if (tile[tile.length - 1][i] == 'B') isBottom = true;
+            for (int x = 0; x < tile[0].length; x++) {
+                if (tile[0][x] == 'B') borderTileKinds[0].add(t);
+                if (tile[tile.length - 1][x] == 'B') borderTileKinds[2].add(t);
             }
-            for (int i = 0; i < tile.length; i++) {
-                if (tile[i][0] == 'B') isLeft = true;
-                if (tile[i][tile[0].length - 1] == 'B') isRight = true;
+            for (int y = 0; y < tile.length; y++) {
+                if (tile[y][0] == 'B') borderTileKinds[3].add(t);
+                if (tile[y][tile[0].length - 1] == 'B') borderTileKinds[1].add(t);
             }
-
-            if (isTop) validTop.add(t);
-            if (isBottom) validBottom.add(t);
-            if (isLeft) validLeft.add(t);
-            if (isRight) validRight.add(t);
         }
 
-        // Ban tiles that aren't allowed in their respective border positions
+        for (int d = 0; d < 4; d++)
+            System.out.println("Direction " + d + " border tiles: " + borderTileKinds[d]);
+
+        // REMOVE overly aggressive bans — do NOT ban at this point
+
+        System.out.println("Valid tile count per cell (pre-propagation):");
         for (int y = 0; y < gridHeight; y++) {
             for (int x = 0; x < gridWidth; x++) {
-                if (y == 0) {
-                    for (int t = 0; t < tiles.size(); t++) {
-                        if (!validTop.contains(t)) wave[y][x][t] = false;
-                    }
-                }
-                if (y == gridHeight - 1) {
-                    for (int t = 0; t < tiles.size(); t++) {
-                        if (!validBottom.contains(t)) wave[y][x][t] = false;
-                    }
-                }
-                if (x == 0) {
-                    for (int t = 0; t < tiles.size(); t++) {
-                        if (!validLeft.contains(t)) wave[y][x][t] = false;
-                    }
-                }
-                if (x == gridWidth - 1) {
-                    for (int t = 0; t < tiles.size(); t++) {
-                        if (!validRight.contains(t)) wave[y][x][t] = false;
-                    }
-                }
+                int count = 0;
+                for (int t = 0; t < tiles.size(); t++) if (wave[y][x][t]) count++;
+                System.out.print(count + " ");
             }
+            System.out.println();
         }
 
-        
-        // Print adjacency rules for debugging
-        for (int t = 0; t < tileCount; t++) {
-            for (int i = 0; i < 4; i++) {
-                System.out.println(t + " adj: " + i + " : " + adjacencyRules[i].getOrDefault(t, Collections.emptySet()));
-            }
-        }
-        // Ban border tiles
-        // Preprocess: prune tiles that can't exist due to adjacency constraints
-        for (int y = 0; y < gridHeight; y++) {
-            for (int x = 0; x < gridWidth; x++) {
-                for (int t = 0; t < tiles.size(); t++) {
-                    for (int dir = 0; dir < 4; dir++) {
-                        boolean edge = (dir == 0 && y == 0) ||
-                                    (dir == 1 && x == gridWidth - 1) ||
-                                    (dir == 2 && y == gridHeight - 1) ||
-                                    (dir == 3 && x == 0);
-                        if (edge) continue; // skip border checks for this direction
-
-                        if (adjacencyRules[dir].getOrDefault(t, Collections.emptySet()).isEmpty()) {
-                            ban(x, y, t);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
         propagate();
         printCompleteWave();
     }
@@ -290,12 +218,16 @@ public class TextWFCModel {
                     if (!wave[ny][nx][t2]) continue;
                     boolean valid = false;
                     for (int t3 = 0; t3 < tiles.size(); t3++) {
-                        if (wave[y][x][t3] &&
-                            adjacencyRules[dir].getOrDefault(t3, Collections.emptySet()).contains(t2)) {
+                        if (!wave[y][x][t3]) continue;
+
+                        // Allow t2 if t3 has no known adjacents in this direction
+                        Set<Integer> adj = adjacencyRules[dir].get(t3);
+                        if (adj == null || adj.isEmpty() || adj.contains(t2)) {
                             valid = true;
                             break;
                         }
                     }
+
                     if (!valid) ban(nx, ny, t2);
                 }
             }
